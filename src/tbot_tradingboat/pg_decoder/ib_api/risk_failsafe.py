@@ -1,33 +1,61 @@
 # -*- coding: utf-8 -*-
-
 """
 RiskFailSafeObserver monitors the portfolio's daily unrealized P&L and closes all positions
 if the P&L drops below the defined threshold (e.g., 1% loss).
 """
 from loguru import logger
 from datetime import datetime
+from ib_insync import IB, Position, MarketOrder, PnLSingle
+from tbot_tradingboat.pg_decoder.ib_api.tbot_order_event import TbotOrderEvent
 
 class RiskFailSafeObserver:
-    def __init__(self, loss_threshold: float = -1.0):
+    def __init__(self, ibsyn: IB, loss_threshold: float = -1.0):
         """
         Initialize the risk fail-safe observer.
-        
+
+        :param ibsyn: Instance of IB for accessing positions and placing orders.
         :param loss_threshold: The percentage loss at which all positions should be closed.
         """
+        self.ibsyn = ibsyn  # IB instance to access positions and place orders
         self.loss_threshold = loss_threshold  # Default threshold: -1% daily loss
         self.start_of_day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         self.daily_pnl = 0.0
+        self.contract_pnl = []  # Track contract-specific PnL updates
 
-    def check_pnl(self, positions):
+        # Subscribe to relevant IB events
+        self.install_event_handlers()
+
+    def install_event_handlers(self):
+        """
+        Install event handlers to listen to IB events related to positions and P&L.
+        """
+        self.ibsyn.positionEvent += self.on_position_event
+        self.ibsyn.pnlSingleEvent += self.on_pnl_single_event
+
+    def on_position_event(self, position: Position):
+        """
+        Handle position updates.
+        """
+        logger.debug(f"Position update: {position.contract.symbol}, Position: {position.position}, Avg Cost: {position.avgCost}")
+        self.check_pnl()
+
+    def on_pnl_single_event(self, pnl: PnLSingle):
+        """
+        Handle PnL updates for individual contracts.
+        """
+        logger.debug(f"PnL update: Contract ID: {pnl.conId}, Unrealized PnL: {pnl.unrealizedPnL}, Realized PnL: {pnl.realizedPnL}")
+        self.contract_pnl.append(pnl)
+        self.check_pnl()
+
+    def check_pnl(self):
         """
         Check the combined unrealized P&L for all positions and close all positions if needed.
-        
-        :param positions: List of current portfolio positions.
         """
         total_unrealized_pnl = 0.0
         total_value = 0.0
-        
-        # Calculate total unrealized P&L and portfolio value
+
+        # Access positions from IB instance
+        positions = self.ibsyn.positions()  # Fetch all current positions from IB
         for position in positions:
             unrealized_pnl = (position.position * position.contract.multiplier *
                               (position.marketPrice - position.avgCost))
@@ -53,9 +81,7 @@ class RiskFailSafeObserver:
         logger.info(f"Current daily unrealized P&L: {self.daily_pnl}%")
         
         # Check if the daily loss exceeds the loss threshold
-        if self.daily_pnl <= self.loss_threshold:
-            return True
-        return False
+        return self.daily_pnl <= self.loss_threshold
 
     def close_all_positions(self, positions):
         """
@@ -67,21 +93,12 @@ class RiskFailSafeObserver:
             try:
                 action = 'SELL' if position.position > 0 else 'BUY'
                 contract = position.contract
-                # Assuming position closing logic through an existing method
-                # Replace with actual position closing logic using your framework.
+                # Place a market order to close the position
+                order = MarketOrder(action, abs(position.position))
+                self.ibsyn.placeOrder(contract, order)
                 logger.info(f"Closing position for {contract.symbol} with action: {action}")
-                # Example: self.ibsyn.placeOrder(contract, marketOrder(action, abs(position.position)))
             except Exception as e:
                 logger.error(f"Failed to close position for {contract.symbol}: {e}")
-
-    def update(self, caller=None, tbot_ts: str = "", data_dict: Dict = None, **kwargs):
-        """
-        Update method called by the TbotSubject to check P&L.
-        """
-        # Assuming `positions` is accessible from the calling framework.
-        # Replace with actual method to fetch positions from your trading environment.
-        positions = []  # Replace with actual positions fetch logic
-        self.check_pnl(positions)
 
     def open(self):
         """
