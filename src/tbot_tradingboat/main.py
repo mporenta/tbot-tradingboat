@@ -7,6 +7,7 @@ __author__ = "Sangwook Lee"
 __copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
 __license__ = "Dual-Licensing (GPL or Commercial License)"
 
+
 import sys
 import socket
 import time
@@ -26,65 +27,6 @@ from tbot_tradingboat.pg_decoder.tbot_decoder import TBOTDecoder
 from tbot_tradingboat.utils.tbot_log import tbot_initialize_log
 from tbot_tradingboat.utils.tbot_env import shared
 from tbot_tradingboat.utils.tbot_utils import strtobool
-from ib_insync import IB  # Make sure you have ib_insync installed
-
-# RiskFailSafeObserver class to monitor the portfolio P&L and close all positions on large loss
-class RiskFailSafeObserver:
-    def __init__(self, ibsyn: IB, loss_threshold: float = -1.0):
-        self.ibsyn = ibsyn
-        self.loss_threshold = loss_threshold  # 1% loss threshold
-        self.start_of_day = time.time()
-        self.daily_pnl = 0.0
-
-    def check_pnl(self):
-        """Check the combined unrealized P&L for all positions"""
-        current_positions = self.ibsyn.positions()
-        total_unrealized_pnl = 0.0
-        
-        for position in current_positions:
-            unrealized_pnl = (position.position * position.contract.multiplier *
-                              (position.marketPrice - position.avgCost))
-            total_unrealized_pnl += unrealized_pnl
-        
-        if self._calculate_daily_loss(total_unrealized_pnl):
-            logger.warning(f"Daily P&L down by 1% or more. Triggering closure of all positions.")
-            self.close_all_positions(current_positions)
-
-    def _calculate_daily_loss(self, unrealized_pnl):
-        total_value = sum(position.marketPrice * position.position for position in self.ibsyn.positions())
-        if total_value == 0:  # Prevent division by zero
-            return False
-        
-        self.daily_pnl = (unrealized_pnl / total_value) * 100
-        logger.info(f"Current daily unrealized P&L: {self.daily_pnl}%")
-        
-        if self.daily_pnl <= self.loss_threshold:
-            return True
-        return False
-
-    def close_all_positions(self, positions):
-        """Close all positions to minimize further losses"""
-        for position in positions:
-            try:
-                action = 'SELL' if position.position > 0 else 'BUY'
-                contract = position.contract
-                order = self.ibsyn.marketOrder(action, abs(position.position))
-                self.ibsyn.placeOrder(contract, order)
-                logger.info(f"Closed position for {contract.symbol}")
-            except Exception as e:
-                logger.error(f"Failed to close position for {contract.symbol}: {e}")
-
-    def update(self, caller=None, tbot_ts: str = "", data_dict: Dict = None, **kwargs):
-        """Check P&L on each event"""
-        self.check_pnl()
-
-    def open(self):
-        """Initialize the observer"""
-        pass
-
-    def close(self):
-        """Close the observer"""
-        pass
 
 
 @dataclass
@@ -133,7 +75,7 @@ class TbotSubject:
 
     def detach(self, observer):
         """
-        Subject detaches an observer
+        Subject deataches an observer
         """
         self._observers.remove(observer)
 
@@ -141,11 +83,12 @@ class TbotSubject:
         """
         Trigger an update in each IBKR subscriber.
         """
+        # logger.debug("notifying observers...")
         for observer in self._observers:
             observer.update(self, id_stream, data_dict, **kwargs)
 
     def delete_event(self, msg_id: str = ""):
-        """Deletes an event handled by a decoder"""
+        """Deletes an event hanlded by a decoder"""
         if self.redis:
             self.redis.delete(msg_id)
 
@@ -162,6 +105,7 @@ class TbotSubject:
         while True:
             time_s = perf_counter()
             try:
+                # Entering the while loop
                 (s_id, data, redis_msg_id) = self.redis.handle_event(self)
                 self.notify(s_id, data, redis_msg_id=redis_msg_id)
             except KeyboardInterrupt:
@@ -200,27 +144,22 @@ def main() -> int:
     """Main entry of Tbot on Tradingboat"""
     tbot_initialize_log()
 
-    ib = IB()
-    ib.connect('127.0.0.1', 7497, clientId=1)
-
     subject = TbotSubject()
     observer_i = TBOTDecoder()
     observer_w = WatchObserver()
     observer_d = DiscordObserver()
     observer_t = TelegramObserver()
-    observer_risk = RiskFailSafeObserver(ib)  # Add the RiskFailSafeObserver
 
     try:
         subject.attach(observer_i)
         subject.attach(observer_w)
         subject.attach(observer_d)
         subject.attach(observer_t)
-        subject.attach(observer_risk)  # Attach the risk fail-safe observer
     except Exception as err:
         logger.error(f"Error while attaching observers: {err}")
         sys.exit(1)
 
-    # Entering Event Loop
+    # Entering Event Looop
     subject.handle_event()
 
     # Closes the app
@@ -228,7 +167,6 @@ def main() -> int:
     subject.detach(observer_w)
     subject.detach(observer_d)
     subject.detach(observer_t)
-    subject.detach(observer_risk)  # Detach the risk fail-safe observer
     return 0
 
 
