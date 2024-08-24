@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Tbot decodes TradingView webhook from Redis Pub/Sub and then sends orders to ib_insync
+Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insync
 """
 __author__ = "Sangwook Lee"
 __copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
@@ -29,7 +29,6 @@ from tbot_tradingboat.utils.tbot_utils import strtobool
 
 # Import the RiskFailSafeObserver
 from tbot_tradingboat.pg_decoder.ib_api.risk_failsafe import RiskFailSafeObserver
-from tbot_tradingboat.pg_decoder.ib_api.tbot_order_event import TbotOrderEvent
 
 @dataclass
 class TbotSubject:
@@ -39,7 +38,7 @@ class TbotSubject:
     _observers = []
 
     def __init__(self):
-        """Initialize a subscriber to Redis"""
+        """Initialize a subscriber to redis"""
         self.redis = None
         self.connect_to_tbot_redis()
         self.event_loop_ms = 0.0
@@ -133,19 +132,12 @@ def main() -> int:
     """Main entry of Tbot on Tradingboat"""
     tbot_initialize_log()
 
-    # Initialize orderdb and errordb
-    order_db = ...  # Initialize your order database
-    error_db = ...  # Initialize your error database
-
-    # Initialize TbotOrderEvent and RiskFailSafeObserver
-    tbot_order_event = TbotOrderEvent(orderdb=order_db, errordb=error_db)
-
     subject = TbotSubject()
     observer_i = TBOTDecoder()
     observer_w = WatchObserver()
     observer_d = DiscordObserver()
     observer_t = TelegramObserver()
-    observer_risk = RiskFailSafeObserver(tbot_order_event)  # Add the RiskFailSafeObserver
+    observer_risk = RiskFailSafeObserver()  # Add the RiskFailSafeObserver
 
     try:
         subject.attach(observer_i)
