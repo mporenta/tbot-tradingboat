@@ -1,26 +1,30 @@
 # -*- coding: utf-8 -*-
 """
 RiskFailSafeObserver monitors the portfolio's daily unrealized P&L and closes all positions
-if the P&L drops below the defined threshold (e.g., 1% loss).
+if the P&L drops below the defined threshold (e.g., 1% loss). It also includes a test mode
+to automatically close the "NVDA" position 120 seconds after it's filled.
 """
 from loguru import logger
 from datetime import datetime
-from ib_insync import IB, Position, MarketOrder, PnLSingle
-from tbot_tradingboat.pg_decoder.ib_api.tbot_order_event import TbotOrderEvent
+from ib_insync import IB, Position, MarketOrder
+import threading  # Import threading to handle delayed execution
 
 class RiskFailSafeObserver:
-    def __init__(self, ibsyn: IB, loss_threshold: float = -1.0):
+    def __init__(self, ibsyn: IB, loss_threshold: float = -1.0, test_mode: int = 0):
         """
         Initialize the risk fail-safe observer.
 
         :param ibsyn: Instance of IB for accessing positions and placing orders.
         :param loss_threshold: The percentage loss at which all positions should be closed.
+        :param test_mode: Set to 1 to enable the test mode that closes "NVDA" 120 seconds after the fill.
         """
         self.ibsyn = ibsyn  # IB instance to access positions and place orders
         self.loss_threshold = loss_threshold  # Default threshold: -1% daily loss
         self.start_of_day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         self.daily_pnl = 0.0
         self.contract_pnl = []  # Track contract-specific PnL updates
+        self.test_mode = test_mode  # Test mode flag
+        self.nvda_timer = None  # Timer for NVDA position closure in test mode
 
         # Subscribe to relevant IB events
         self.install_event_handlers()
@@ -30,7 +34,7 @@ class RiskFailSafeObserver:
         Install event handlers to listen to IB events related to positions and P&L.
         """
         self.ibsyn.positionEvent += self.on_position_event
-        self.ibsyn.pnlSingleEvent += self.on_pnl_single_event
+        self.ibsyn.orderStatusEvent += self.on_order_status_event
 
     def on_position_event(self, position: Position):
         """
@@ -39,13 +43,33 @@ class RiskFailSafeObserver:
         logger.debug(f"Position update: {position.contract.symbol}, Position: {position.position}, Avg Cost: {position.avgCost}")
         self.check_pnl()
 
-    def on_pnl_single_event(self, pnl: PnLSingle):
+    def on_order_status_event(self, trade):
         """
-        Handle PnL updates for individual contracts.
+        Handle order status updates. In test mode, close "NVDA" position after 120 seconds.
         """
-        logger.debug(f"PnL update: Contract ID: {pnl.conId}, Unrealized PnL: {pnl.unrealizedPnL}, Realized PnL: {pnl.realizedPnL}")
-        self.contract_pnl.append(pnl)
-        self.check_pnl()
+        if self.test_mode == 1 and trade.contract.symbol == "NVDA" and trade.orderStatus.status == "Filled":
+            logger.info(f"Test mode enabled: NVDA position filled. Scheduling closure in 120 seconds.")
+            # Start a timer to close the NVDA position after 120 seconds
+            self.nvda_timer = threading.Timer(120, self.close_nvda_position)
+            self.nvda_timer.start()
+
+    def close_nvda_position(self):
+        """
+        Close the NVDA position after the delay (120 seconds).
+        """
+        positions = self.ibsyn.positions()  # Fetch all current positions
+        for position in positions:
+            if position.contract.symbol == "NVDA":
+                try:
+                    action = 'SELL' if position.position > 0 else 'BUY'
+                    contract = position.contract
+                    # Place a market order to close the NVDA position
+                    order = MarketOrder(action, abs(position.position))
+                    self.ibsyn.placeOrder(contract, order)
+                    logger.info(f"Test mode: Closing NVDA position with action: {action}")
+                except Exception as e:
+                    logger.error(f"Failed to close NVDA position: {e}")
+                break
 
     def check_pnl(self):
         """
@@ -110,4 +134,6 @@ class RiskFailSafeObserver:
         """
         Close method for the observer to handle cleanup.
         """
+        if self.nvda_timer:
+            self.nvda_timer.cancel()  # Stop the timer if it's still running
         logger.info("RiskFailSafeObserver closed.")
