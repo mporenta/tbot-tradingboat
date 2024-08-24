@@ -8,8 +8,11 @@ from loguru import logger
 from datetime import datetime, timedelta
 from ib_insync import IB, MarketOrder, Position, PnLSingle
 import threading
+from tbot_tradingboat.pg_decoder.ib_api.tbot_order_event import TbotOrderEvent
 
 class RiskFailSafeObserver(TbotOrderEvent):
+  
+
     def __init__(self, ibsyn: IB, orderdb, errordb, contract_pnl=None, loss_threshold: float = -1.0, test_mode: int = 0):
         """
         Initialize the risk fail-safe observer, which inherits from TbotOrderEvent.
