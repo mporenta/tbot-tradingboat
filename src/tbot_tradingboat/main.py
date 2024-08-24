@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insync
+Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insyc
 """
 __author__ = "Sangwook Lee"
 __copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
 __license__ = "Dual-Licensing (GPL or Commercial License)"
+
 
 import sys
 import socket
@@ -27,14 +28,15 @@ from tbot_tradingboat.utils.tbot_log import tbot_initialize_log
 from tbot_tradingboat.utils.tbot_env import shared
 from tbot_tradingboat.utils.tbot_utils import strtobool
 
-# Import the RiskFailSafeObserver
-from tbot_tradingboat.pg_decoder.ib_api.risk_failsafe import RiskFailSafeObserver
 
 @dataclass
 class TbotSubject:
     """
-    The TbotSubject interface declares a set of methods for managing subscribers.
+    The TbotSubject interface declares a set of methods
+    for managing subscribers.
     """
+
+    # List of subscribers.
     _observers = []
 
     def __init__(self):
@@ -45,7 +47,9 @@ class TbotSubject:
         self.profiler = strtobool(shared.profiler)
 
     def connect_to_tbot_redis(self):
-        """Connects to Redis subscriber"""
+        """
+        Connects to Redis's subscriber
+        """
         if strtobool(shared.r_is_stream):
             self.redis = TbotStream()
         else:
@@ -62,22 +66,29 @@ class TbotSubject:
                 time.sleep(2)
 
     def attach(self, observer):
-        """Subject attaches an observer"""
+        """
+        Subject attaches an observer
+        """
         logger.trace("attaching an observer.")
         self._observers.append(observer)
         observer.open()
 
     def detach(self, observer):
-        """Subject detaches an observer"""
+        """
+        Subject deataches an observer
+        """
         self._observers.remove(observer)
 
     def notify(self, id_stream: str, data_dict: Dict, **kwargs):
-        """Trigger an update in each IBKR subscriber."""
+        """
+        Trigger an update in each IBKR subscriber.
+        """
+        # logger.debug("notifying observers...")
         for observer in self._observers:
             observer.update(self, id_stream, data_dict, **kwargs)
 
     def delete_event(self, msg_id: str = ""):
-        """Deletes an event handled by a decoder"""
+        """Deletes an event hanlded by a decoder"""
         if self.redis:
             self.redis.delete(msg_id)
 
@@ -90,10 +101,11 @@ class TbotSubject:
                 break
 
     def handle_event(self):
-        """Handles a new event from the server"""
+        """Handles a new event from Server"""
         while True:
             time_s = perf_counter()
             try:
+                # Entering the while loop
                 (s_id, data, redis_msg_id) = self.redis.handle_event(self)
                 self.notify(s_id, data, redis_msg_id=redis_msg_id)
             except KeyboardInterrupt:
@@ -137,19 +149,17 @@ def main() -> int:
     observer_w = WatchObserver()
     observer_d = DiscordObserver()
     observer_t = TelegramObserver()
-    observer_risk = RiskFailSafeObserver()  # Add the RiskFailSafeObserver
 
     try:
         subject.attach(observer_i)
         subject.attach(observer_w)
         subject.attach(observer_d)
         subject.attach(observer_t)
-        subject.attach(observer_risk)  # Attach the risk fail-safe observer
     except Exception as err:
         logger.error(f"Error while attaching observers: {err}")
         sys.exit(1)
 
-    # Entering Event Loop
+    # Entering Event Looop
     subject.handle_event()
 
     # Closes the app
@@ -157,7 +167,6 @@ def main() -> int:
     subject.detach(observer_w)
     subject.detach(observer_d)
     subject.detach(observer_t)
-    subject.detach(observer_risk)  # Detach the risk fail-safe observer
     return 0
 
 
