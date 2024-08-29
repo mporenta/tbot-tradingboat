@@ -1,16 +1,7 @@
-# -*- coding: utf-8 -*-
-
-"""
-Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insyc
-"""
-__author__ = "Sangwook Lee"
-__copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
-__license__ = "Dual-Licensing (GPL or Commercial License)"
-
-
 import sys
 import socket
 import time
+import subprocess  # Import subprocess to run mypnl.py
 from time import perf_counter
 from dataclasses import dataclass
 
@@ -26,8 +17,9 @@ from tbot_tradingboat.pg_redis.pub_sub import TbotSub
 from tbot_tradingboat.pg_decoder.tbot_decoder import TBOTDecoder
 from tbot_tradingboat.utils.tbot_log import tbot_initialize_log
 from tbot_tradingboat.utils.tbot_env import shared
-from tbot_tradingboat.utils.tbot_utils import strtobool
 
+# Import the SimplePnLStrategy class from mypnl.py
+from mypnl import SimplePnLStrategy
 
 @dataclass
 class TbotSubject:
@@ -159,8 +151,15 @@ def main() -> int:
         logger.error(f"Error while attaching observers: {err}")
         sys.exit(1)
 
-    # Entering Event Looop
+    # Entering Event Loop
     subject.handle_event()
+
+    # Start the SimplePnLStrategy after TBOT is up and running
+    try:
+        logger.info("Starting PnL Strategy after TBOT initialization...")
+        subprocess.Popen(["python", "mypnl.py"])
+    except Exception as e:
+        logger.error(f"Failed to start PnL Strategy: {e}")
 
     # Closes the app
     subject.detach(observer_i)
@@ -168,7 +167,6 @@ def main() -> int:
     subject.detach(observer_d)
     subject.detach(observer_t)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
