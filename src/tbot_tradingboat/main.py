@@ -1,3 +1,13 @@
+# -*- coding: utf-8 -*-
+
+"""
+Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insync
+"""
+__author__ = "Sangwook Lee"
+__copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
+__license__ = "Dual-Licensing (GPL or Commercial License)"
+
+
 import sys
 import socket
 import time
@@ -17,6 +27,7 @@ from tbot_tradingboat.pg_redis.pub_sub import TbotSub
 from tbot_tradingboat.pg_decoder.tbot_decoder import TBOTDecoder
 from tbot_tradingboat.utils.tbot_log import tbot_initialize_log
 from tbot_tradingboat.utils.tbot_env import shared
+from tbot_tradingboat.utils.tbot_utils import strtobool
 
 # Import the SimplePnLStrategy class from mypnl.py
 from mypnl import SimplePnLStrategy
