@@ -1,17 +1,6 @@
-# -*- coding: utf-8 -*-
-
-"""
-Tbot decodes TradingView webhook from Redis Pub/Sub and then send orders to ib_insync
-"""
-__author__ = "Sangwook Lee"
-__copyright__ = "Copyright (C) 2023 Plusgenie Ltd"
-__license__ = "Dual-Licensing (GPL or Commercial License)"
-
-
 import sys
 import socket
 import time
-import subprocess  # Import subprocess to run mypnl.py
 from time import perf_counter
 from dataclasses import dataclass
 
@@ -29,7 +18,6 @@ from tbot_tradingboat.utils.tbot_log import tbot_initialize_log
 from tbot_tradingboat.utils.tbot_env import shared
 from tbot_tradingboat.utils.tbot_utils import strtobool
 
-# Import the SimplePnLStrategy class from mypnl.py
 from mypnl import SimplePnLStrategy
 
 @dataclass
@@ -86,7 +74,6 @@ class TbotSubject:
         """
         Trigger an update in each IBKR subscriber.
         """
-        # logger.debug("notifying observers...")
         for observer in self._observers:
             observer.update(self, id_stream, data_dict, **kwargs)
 
@@ -111,6 +98,10 @@ class TbotSubject:
                 # Entering the while loop
                 (s_id, data, redis_msg_id) = self.redis.handle_event(self)
                 self.notify(s_id, data, redis_msg_id=redis_msg_id)
+                
+                # Process IB events for SimplePnLStrategy
+                if hasattr(self, 'pnl_strategy'):
+                    self.pnl_strategy.process_ib_events()
             except KeyboardInterrupt:
                 logger.info("got exception: KeyboardInterrupt")
                 break
@@ -142,7 +133,6 @@ class TbotSubject:
         if self.redis:
             self.redis.close()
 
-
 def main() -> int:
     """Main entry of Tbot on Tradingboat"""
     tbot_initialize_log()
@@ -162,21 +152,25 @@ def main() -> int:
         logger.error(f"Error while attaching observers: {err}")
         sys.exit(1)
 
+    # Initialize and start SimplePnLStrategy
+    try:
+        logger.info("Initializing SimplePnLStrategy...")
+        subject.pnl_strategy = SimplePnLStrategy()
+        subject.pnl_strategy.start()
+        logger.info("SimplePnLStrategy started successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize or start SimplePnLStrategy: {e}")
+
     # Entering Event Loop
     subject.handle_event()
-
-    # Start the SimplePnLStrategy after TBOT is up and running
-    try:
-        logger.info("Starting PnL Strategy after TBOT initialization...")
-        subprocess.Popen(["python", "mypnl.py"])
-    except Exception as e:
-        logger.error(f"Failed to start PnL Strategy: {e}")
 
     # Closes the app
     subject.detach(observer_i)
     subject.detach(observer_w)
     subject.detach(observer_d)
     subject.detach(observer_t)
+    if hasattr(subject, 'pnl_strategy'):
+        subject.pnl_strategy.close_all_positions()  # This will also disconnect from IB
     return 0
 
 if __name__ == "__main__":
