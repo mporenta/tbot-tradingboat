@@ -33,3 +33,13 @@ t_cmd="cd $TBOT_APP_HOME;\
 python src/tbot_tradingboat/main.py"
 
 $TBOT_APP_HOME/tbottmux/pg_tmux_main.py -a start -c "$t_cmd" -w 'TBOT'
+
+# Wait for 30 seconds
+echo "Waiting for 30 seconds before running mypnl.py..."
+sleep 30
+
+# Run mypnl.py in a new tmux session
+echo "Running mypnl.py..."
+t_cmd="cd $TBOT_APP_HOME;\
+python src/tbot_tradingboat/mypnl.py"
+$TBOT_APP_HOME/tbottmux/pg_tmux_main.py -a start -c "$t_cmd" -w 'MYPNL'
