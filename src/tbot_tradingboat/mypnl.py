@@ -1,14 +1,12 @@
-
 import sys
 import logging
 from loguru import logger
 from datetime import datetime
 import pytz
-from ib_insync import PnL, IB, MarketOrder, AccountValue, PortfolioItem, util
+from ib_insync import IB, MarketOrder, util
+from utils.tbot_env import shared # type: ignore
 
 
-
-from tbot_tradingboat.utils.tbot_env import shared # type: ignore
 # Set up loguru logging configuration at the start of the script
 logger.remove()  # Remove default handler to avoid duplicate logs
 logger.add("trading_strategy.log", level="INFO", format="{time} {level} {message}")  # Log to a file
@@ -16,23 +14,24 @@ logger.add(sys.stderr, level="INFO")  # Also log to the console
 
 logger.info("Logging is configured.")
 
+
 class SimplePnLStrategy:
     def __init__(self, host='127.0.0.1', port=4002, client_id=2, account_balance=1007812.0):
         self.host = host
         self.port = port
         self.client_id = client_id
         self.ib_enable_log(shared.ib_loglevel)
+
         self.ib = None
-        self.PnL = None
-        self.ib.reqAllOpenOrdersAsync = IB.reqAllOpenOrdersAsync()
+        self.pnl = None
         self.account_balance = account_balance  # User-provided account balance
         self.loss_threshold = -0.01 * self.account_balance  # 1% of the account balance
 
         logger.info("SimplePnLStrategy initialized.")
-        
+
     def ib_enable_log(self, level=logging.ERROR):
         """Enables ib insync logging"""
-        util.logToConsole(level)    
+        util.logToConsole(level)  
 
     def run(self):
         logger.info("Running the strategy...")
@@ -40,8 +39,7 @@ class SimplePnLStrategy:
         # Establish connection to IB
         self.connect_to_ib()
 
-        # Request all open orders
-
+        # Request all open orders asynchronously
         self.ib.reqAllOpenOrdersAsync()
 
         # Subscribe to order events
@@ -58,7 +56,6 @@ class SimplePnLStrategy:
         # Enter the event-driven loop to monitor PnL updates
         self.ib.run()
 
-
     def get_current_time(self):
         local_tz = pytz.timezone('America/New_York')
         return datetime.now(local_tz).strftime('%Y-%m-%d %H:%M:%S')
@@ -68,14 +65,14 @@ class SimplePnLStrategy:
             self.ib = IB()
             self.ib.connect(self.host, self.port, clientId=self.client_id)
             logger.info("Connected to IB at {}", self.get_current_time())
+            logging.info("Connected to IB at {}", self.get_current_time())
         except Exception as e:
             logger.error("Failed to connect to IB: {}", str(e))
+            logging.error("Failed to connect to IB: {}", str(e))
 
     def subscribe_to_events(self):
         self.ib.newOrderEvent += self.on_new_order
         logger.info("Subscribed to newOrderEvent.")
-
-        self.ib.reqAllOpenOrdersAsync += self.on_open_orders
 
         self.ib.orderModifyEvent += self.on_order_modify
         logger.info("Subscribed to orderModifyEvent.")
@@ -89,27 +86,10 @@ class SimplePnLStrategy:
         self.ib.orderStatusEvent += self.on_order_status
         logger.info("Subscribed to orderStatusEvent.")
 
-        # Subscribing to additional events to capture all relevant data
-        self.ib.execDetailsEvent += self.on_exec_details
-        logger.info("Subscribed to execDetailsEvent.")
-
-        self.ib.commissionReportEvent += self.on_commission_report
-        logger.info("Subscribed to commissionReportEvent.")
-
         logger.info("All order events subscribed.")
-
-
 
     def on_new_order(self, trade):
         logger.info("New order placed: {}", trade)
-        logger.debug("Order details: Contract: {}, Action: {}, Quantity: {}, Order Type: {}, Status: {}",
-                 trade.contract, trade.order.action, trade.order.totalQuantity, trade.order.orderType, trade.orderStatus.status)
-
-    def on_open_orders(self, orders):
-        logger.info("Open orders received: {}", orders) # List of open orders
-        
-       
-
 
     def on_order_modify(self, trade):
         logger.info("Order modified: {}", trade)
@@ -123,12 +103,12 @@ class SimplePnLStrategy:
     def on_order_status(self, trade):
         logger.info("Order status changed: {}", trade)
 
-
     def wait_for_initial_position(self):
         logger.info("Waiting for initial position...")
         while not self.ib.positions():
             self.ib.sleep(1)
         logger.info("Initial position detected. Starting strategy.")
+        logging.info("Initial position detected. Starting strategy.")
 
     def request_pnl_updates(self):
         try:
@@ -138,27 +118,29 @@ class SimplePnLStrategy:
             logger.info("Subscribed to PnL updates.")
         except Exception as e:
             logger.error("Failed to subscribe to PnL updates: {}", str(e))
+            logging.error("Failed to subscribe to PnL updates: {}", str(e))
 
-    def on_pnl(self, PnL):
-        self.PnL = PnL
-        if PnL.avgCost == 0:
+    def on_pnl(self, pnl):
+        self.pnl = pnl
+        if pnl.avgCost == 0:
             logger.warning("Received PnL data with zero avgCost; skipping further processing for this contract.")
-            return 
+            return
         logger.info(
             "PnL updated: Daily PnL: {:.2f}, Realized PnL: {:.2f}, Unrealized PnL: {:.2f} at {}",
-            PnL.dailyPnL, PnL.realizedPnL, PnL.unrealizedPnL, self.get_current_time()
+            pnl.dailyPnL, pnl.realizedPnL, pnl.unrealizedPnL, self.get_current_time()
         )
 
         if self.check_loss_threshold():
             self.close_all_positions()
             logger.info("Loss threshold exceeded, positions closed. Exiting strategy.")
+            logging.info("Loss threshold exceeded, positions closed. Exiting strategy.")
             self.ib.disconnect()
 
     def check_loss_threshold(self):
-        if self.PnL and self.PnL.dailyPnL <= self.loss_threshold:
+        if self.pnl and self.pnl.dailyPnL <= self.loss_threshold:
             logger.warning(
                 "Loss threshold of {:.2f} (1%% of account balance) exceeded with daily PnL: {:.2f} at {}",
-                self.loss_threshold, self.PnL.dailyPnL, self.get_current_time()
+                self.loss_threshold, self.pnl.dailyPnL, self.get_current_time()
             )
             return True
         return False
@@ -188,7 +170,6 @@ class SimplePnLStrategy:
         logger.info("Completed position closing attempt at {}", self.get_current_time())
 
 
-
 if __name__ == "__main__":
     logger.info("Script is starting...")
     # User can set their account balance here
@@ -196,3 +177,4 @@ if __name__ == "__main__":
     strategy = SimplePnLStrategy(account_balance=account_balance)
     strategy.run()
     logger.info("Script has finished.")
+    logging.info("Script has finished.")
