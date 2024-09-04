@@ -1,10 +1,14 @@
+
 import sys
 import logging
+import requests
+import time
+import json
 from loguru import logger
 from datetime import datetime
 import pytz
-from ib_insync import IB, MarketOrder, util
-from utils.tbot_env import shared # type: ignore
+from ib_insync import IB, MarketOrder, util, Stock
+
 
 
 # Set up loguru logging configuration at the start of the script
@@ -16,22 +20,20 @@ logger.info("Logging is configured.")
 
 
 class SimplePnLStrategy:
-    def __init__(self, host='127.0.0.1', port=4002, client_id=2, account_balance=1007812.0):
+    def __init__(self, host='127.0.0.1', port=7497, client_id=2, account_balance=977319.0):
         self.host = host
         self.port = port
         self.client_id = client_id
-        self.ib_enable_log(shared.ib_loglevel)
+      
 
         self.ib = None
         self.pnl = None
         self.account_balance = account_balance  # User-provided account balance
-        self.loss_threshold = -0.01 * self.account_balance  # 1% of the account balance
+        self.loss_threshold = -0.000023 * self.account_balance  # 1% of the account balance
 
         logger.info("SimplePnLStrategy initialized.")
 
-    def ib_enable_log(self, level=logging.ERROR):
-        """Enables ib insync logging"""
-        util.logToConsole(level)  
+    
 
     def run(self):
         logger.info("Running the strategy...")
@@ -65,10 +67,10 @@ class SimplePnLStrategy:
             self.ib = IB()
             self.ib.connect(self.host, self.port, clientId=self.client_id)
             logger.info("Connected to IB at {}", self.get_current_time())
-            logging.info("Connected to IB at {}", self.get_current_time())
+            logger.info("Connected to IB at {}", self.get_current_time())
         except Exception as e:
             logger.error("Failed to connect to IB: {}", str(e))
-            logging.error("Failed to connect to IB: {}", str(e))
+            logger.error("Failed to connect to IB: {}", str(e))
 
     def subscribe_to_events(self):
         self.ib.newOrderEvent += self.on_new_order
@@ -108,7 +110,7 @@ class SimplePnLStrategy:
         while not self.ib.positions():
             self.ib.sleep(1)
         logger.info("Initial position detected. Starting strategy.")
-        logging.info("Initial position detected. Starting strategy.")
+        logger.info("Initial position detected. Starting strategy.")
 
     def request_pnl_updates(self):
         try:
@@ -118,22 +120,16 @@ class SimplePnLStrategy:
             logger.info("Subscribed to PnL updates.")
         except Exception as e:
             logger.error("Failed to subscribe to PnL updates: {}", str(e))
-            logging.error("Failed to subscribe to PnL updates: {}", str(e))
+            logger.error("Failed to subscribe to PnL updates: {}", str(e))
 
     def on_pnl(self, pnl):
         self.pnl = pnl
-        if pnl.avgCost == 0:
-            logger.warning("Received PnL data with zero avgCost; skipping further processing for this contract.")
-            return
-        logger.info(
-            "PnL updated: Daily PnL: {:.2f}, Realized PnL: {:.2f}, Unrealized PnL: {:.2f} at {}",
-            pnl.dailyPnL, pnl.realizedPnL, pnl.unrealizedPnL, self.get_current_time()
-        )
+      
 
         if self.check_loss_threshold():
             self.close_all_positions()
             logger.info("Loss threshold exceeded, positions closed. Exiting strategy.")
-            logging.info("Loss threshold exceeded, positions closed. Exiting strategy.")
+            logger.info("Loss threshold exceeded, positions closed. Exiting strategy.")
             self.ib.disconnect()
 
     def check_loss_threshold(self):
@@ -145,36 +141,68 @@ class SimplePnLStrategy:
             return True
         return False
 
+  
+
+    
+        
     def close_all_positions(self):
-        logger.info("Attempting to close all positions at {}", self.get_current_time())
+        logging.info("Attempting to close all positions at {}", self.get_current_time())
+        url = "https://hooks.zapier.com/hooks/catch/10447300/3kbxc1f/"
         for position in self.ib.positions():
             contract = position.contract
             qty = position.position
+            symbol = contract.symbol
+            client_id = self.client_id
 
-            if qty > 0:
-                order = MarketOrder('SELL', qty)
-            elif qty < 0:
-                order = MarketOrder('BUY', abs(qty))
-            else:
-                logger.info("No position to close for {} at {}", contract.symbol, self.get_current_time())
-                continue
+            # Use the avgCost as the last price
+            last_price = position.avgCost
 
-            logger.info("Placing order for {} to close position of {} units at {}", contract.symbol, qty, self.get_current_time())
+            # Generate the current timestamp in Unix format
+            current_time = int(time.time())
+
+            # Prepare the payload for the POST request
+            payload = {
+                "timestamp": current_time,
+                "ticker": symbol,
+                "currency": "USD",
+                "timeframe": "S",
+                "clientId": client_id,
+                "key": "WebhookReceived:fcbd3d",
+                "contract": "stock",
+                "orderRef": "close_all",
+                "direction": "strategy.close_all",
+                "metrics": [
+                    {"name": "entry.limit", "value": 0},
+                    {"name": "entry.stop", "value": 0},
+                    {"name": "exit.limit", "value": 0},
+                    {"name": "exit.stop", "value": 0},
+                    {"name": "qty", "value": -10000000000},
+                    {"name": "price", "value": last_price}
+                ]
+            }
+
+            headers = {'Content-Type': 'application/json'}
+
+            # Convert payload to JSON format
+            payload_json = json.dumps(payload)
 
             try:
-                trade = self.ib.placeOrder(contract, order)
-                logger.info("Placed order to close position for {}: {} at {}", contract.symbol, trade, self.get_current_time())
+                # Send the POST request to the webhook
+                response = requests.post(url, headers=headers, data=payload_json)
+
+                # Log the response status
+                logging.info("Sent POST request to close position for {}: {} - Response: {}", symbol, response.status_code, response.text)
+
             except Exception as e:
-                logger.error("Failed to place order for {}: {}", contract.symbol, str(e))
+                logging.error("Failed to send POST request for {}: {}", symbol, str(e))
 
-        logger.info("Completed position closing attempt at {}", self.get_current_time())
-
+        logging.info("Completed position closing attempt at {}", self.get_current_time())
 
 if __name__ == "__main__":
     logger.info("Script is starting...")
     # User can set their account balance here
-    account_balance = 1007812.0  # Example: $100,000
+    account_balance = 977319.0  # Example: $100,000
     strategy = SimplePnLStrategy(account_balance=account_balance)
     strategy.run()
     logger.info("Script has finished.")
-    logging.info("Script has finished.")
+    logger.info("Script has finished.")
