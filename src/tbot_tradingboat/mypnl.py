@@ -20,7 +20,7 @@ logger.info("Logging is configured.")
 
 
 class SimplePnLStrategy:
-    def __init__(self, host='127.0.0.1', port=7497, client_id=2, account_balance=977319.0):
+    def __init__(self, host='127.0.0.1', port=4002, client_id=2, account_balance=977319.0):
         self.host = host
         self.port = port
         self.client_id = client_id
