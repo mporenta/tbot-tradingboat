@@ -20,7 +20,7 @@ logger.info("Logging is configured.")
 
 
 class SimplePnLStrategy:
-    def __init__(self, host='127.0.0.1', port=4002, client_id=2, account_balance=977319.0):
+    def __init__(self, host='127.0.0.1', port=4002, client_id=2, account_balance=30000.0):
         self.host = host
         self.port = port
         self.client_id = client_id
@@ -29,7 +29,7 @@ class SimplePnLStrategy:
         self.ib = None
         self.pnl = None
         self.account_balance = account_balance  # User-provided account balance
-        self.loss_threshold = -0.000023 * self.account_balance  # 1% of the account balance
+        self.loss_threshold = -0.01* self.account_balance  # 1% of the account balance
 
         logger.info("SimplePnLStrategy initialized.")
 
@@ -147,7 +147,7 @@ class SimplePnLStrategy:
         
     def close_all_positions(self):
         logging.info("Attempting to close all positions at {}", self.get_current_time())
-        url = "https://hooks.zapier.com/hooks/catch/10447300/3kbxc1f/"
+        url = "https://tv.porenta.us/webhook"
         for position in self.ib.positions():
             contract = position.contract
             qty = position.position
@@ -166,7 +166,7 @@ class SimplePnLStrategy:
                 "ticker": symbol,
                 "currency": "USD",
                 "timeframe": "S",
-                "clientId": client_id,
+                "clientId": "1",
                 "key": "WebhookReceived:fcbd3d",
                 "contract": "stock",
                 "orderRef": "close_all",
@@ -201,7 +201,7 @@ class SimplePnLStrategy:
 if __name__ == "__main__":
     logger.info("Script is starting...")
     # User can set their account balance here
-    account_balance = 977319.0  # Example: $100,000
+    account_balance = 30000.0  # Example: $100,000
     strategy = SimplePnLStrategy(account_balance=account_balance)
     strategy.run()
     logger.info("Script has finished.")
