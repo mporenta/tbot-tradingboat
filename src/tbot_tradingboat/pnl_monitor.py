@@ -1,5 +1,5 @@
 import os
-from ib_async import *
+from ib_insync import *
 import pandas as pd
 from loguru import logger
 
