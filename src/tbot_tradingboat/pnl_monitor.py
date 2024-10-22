@@ -1,49 +1,3 @@
-from ib_async import *
-
-
-    
-class IBPortfolioMonitor:
-    def __init__(self):
-        self.ib = IB()
-
-    def close_positions(self):
-        positions = self.ib.positions()
-        for position in positions:
-            contract = position.contract
-            pos_size = position.position
-            if pos_size == 0:
-                continue  # Nothing to close
-            action = 'SELL' if pos_size > 0 else 'BUY'
-            order = Order(
-                action=action,
-                totalQuantity=abs(pos_size),
-                orderType='MKT'
-            )
-            trade = self.ib.placeOrder(contract, order)
-            
-            print(f"Placed order to {action} {abs(pos_size)} of {contract.symbol}")
-            # Optionally, wait for order to fill
-            # You can use trade.orderStatus.status or trade.fillEvent.wait() if needed
-
-    
-    
-    def run(self):
-        try:
-            self.ib.connect("127.0.0.1", 4002, clientId=1)
-            self.close_positions()
-            # Keep the connection alive
-            self.ib.run()
-            
-        except KeyboardInterrupt:
-            print("\nShutting down...")
-        except Exception as e:
-            print(f"Error in main loop: {e}")
-        finally:
-            self.ib.disconnect()
-
-if __name__ == "__main__":
-    monitor = IBPortfolioMonitor()
-    monitor.run()
 import os
 from ib_async import *
 import pandas as pd
@@ -95,7 +49,7 @@ class IBPortfolioMonitor:
     def fetch_beginning_balance(self):
         self.beginning_balance = self.fetch_net_liquidation()
         if self.beginning_balance is not None:
-            self.take_action()
+            self.close_positions()
             self.action_taken = True
             logger.info(f"Beginning account balance: {self.beginning_balance}")
         else:
@@ -135,31 +89,27 @@ class IBPortfolioMonitor:
             if percentage_change <= self.loss_threshold:
                 logger.warning(f"P&L threshold reached: {percentage_change:.2f}%")
                 # Take action to close positions and cancel orders
-                self.take_action()
+                self.close_positions()
                 self.action_taken = True
         else:
             logger.error("Failed to retrieve current net liquidation value.")
 
-    def take_action(self):
-
-        # Implement your logic to close positions and cancel orders
+    def close_positions(self):
         positions = self.ib.positions()
         for position in positions:
-            
-            action = 'SELL' if position.position > 0 else 'BUY'
-            quantity = abs(position.position)
-            
-            # Create a market order to close the position
-            order = MarketOrder(action, quantity)
+            contract = position.contract
+            pos_size = position.position
+            if pos_size == 0:
+                continue  # Nothing to close
+            action = 'SELL' if pos_size > 0 else 'BUY'
+            order = Order(
+                action=action,
+                totalQuantity=abs(pos_size),
+                orderType='MKT'
+            )
             trade = self.ib.placeOrder(contract, order)
             
-            # Log the order details
-            logger.info(f"Placed {action} order for {quantity} shares of {contract.symbol}")
-            
-            # Wait for the order to be filled
-            trade.filledEvent += lambda trade: logger.info(f"Order filled for {contract.symbol}")
-            logger.info("Taking action to close positions and cancel orders.")
-            pass  # Replace with actual implementation
+            print(f"Placed order to {action} {abs(pos_size)} of {contract.symbol}")
 
     def get_positions(self):
         """Get current positions"""
